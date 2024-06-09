@@ -160,7 +160,9 @@ def train_function(voyages,lp):
             #here expect to get data of some lp 
         if  len(voyages[lp])> 30  :
             for idx,voyage in enumerate(voyages[lp]):
-                voyages[lp][idx]=[[node[0],node[1],node[2].hour+node[2].minute/60+node[2].second/3600] for node in voyage]
+                voyages[lp][idx]=[[node[0],node[1]] for node in voyage]
+                #todo return to orignial
+                # voyages[lp][idx]=[[node[0],node[1],node[2].hour+node[2].minute/60+node[2].second/3600] for node in voyage]         
             train_voyages_arr, test_voyages_arr = train_test_split(to_time_series_dataset(voyages[lp]),
                                                                    test_size=0.2,shuffle=True)
             low = 1
@@ -190,7 +192,7 @@ def train_function(voyages,lp):
 # lps_path = 'count_lp.csv'
 # lps_list = pd.read_csv(lps_path)[0:]
 if __name__ == "__main__":
-    directory_path=r".\train"
+    directory_path=r".\\galScripts\\train"
     csv_files_path= csv_file_paths =os.path.join(directory_path, 'GAL_Det-08-2023-ALL-AI.csv') 
     voyages= create_voyages(fix_data(pd.read_csv(csv_files_path)))
     # voyages=merge_dicts(dfs)
