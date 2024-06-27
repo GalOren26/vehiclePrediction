@@ -18,7 +18,7 @@ def discretize_date(date):
     elif date.hour>=4 and date.hour<=11:
         return "morning" 
     return "Mid-Day"
-def create_voyages_by_name(df):
+def create_voyages_by_name(df,camera_to_site,external_to_new_ishit_id):
     def diff_greater_than_n_hours(time1, time2,hours=1):
         return (time2 - time1) > timedelta(hours=hours)
 
@@ -58,7 +58,13 @@ def create_voyages_by_name(df):
                     current_voyage = []
             if last_date is None or diff_greater_than_n_sec(last_date, row['Date'], Consts['min_time_between_samples']):
                     date_time=discretize_date(row['Date'])
-                    current_voyage.append([row['externalCameraId'],date_time,row['Date']])
+                    if row['ishitId'] in camera_to_site: 
+                      current_voyage.append([camera_to_site[row['ishitId']],date_time,row['Date']])
+                    else:
+                        #fix mismatch in ishitid 
+                       ishitId=external_to_new_ishit_id[row['externalCameraId']]
+                       current_voyage.append([camera_to_site[ishitId],date_time,row['Date']])
+                       
             last_date = row['Date']
             # Add the last voyage if it's not empty
         if current_voyage and len(current_voyage) >= Consts['min_len_voyage']:

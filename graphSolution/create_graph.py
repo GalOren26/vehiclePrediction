@@ -7,18 +7,18 @@ from graph_consts import Consts
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # voyages = load_dict_from_pickle(voyages_path)
 # Load data
-detections_path=os.path.join(Consts['trail_path'],Consts['detections_path_name']) 
+detections_path=Consts['detections_path_name']
 df = pd.read_csv(detections_path)
-df_AllLprCamers= pd.read_csv(Consts['camera_path'])
-camera_name_dict = df_AllLprCamers.set_index('ExternalCameraId')['Name'].to_dict()
-# double direction of english hebrew camera names 
-name_to_cameraid = pd.Series(df_AllLprCamers.ExternalCameraId.values, index=df_AllLprCamers.Name).to_dict()
-cameraid_to_name = pd.Series(df_AllLprCamers.Name.values, index=df_AllLprCamers.ExternalCameraId).to_dict()
+df_camares= pd.read_csv(Consts['camera_path'])
+# Create a dictionary to map ExternalCameraId to siteName
+camera_to_site = dict(zip(df_camares['ishitId'], df_camares['siteName']))
+external_to_new_ishit_id= dict(zip(df_camares['ExternalCameraId'],df_camares['ishitId']))
+
 
 
 train,test=split_data(df)
-train_voyages=create_voyages_by_name(train)
-test_voyages=create_voyages_by_name(test)
+train_voyages=create_voyages_by_name(train,camera_to_site,external_to_new_ishit_id)
+test_voyages=create_voyages_by_name(test,camera_to_site,external_to_new_ishit_id)
 # # save and load data to bot crearte each time 
 # voyages_path = 'inffered_voyages_graph.pkl'
 # save_dict_to_pickle(voyages,voyages_path)
@@ -37,6 +37,7 @@ for lp in train_voyages.keys():
     for date in train_voyages[lp]:
         for voyage in train_voyages[lp][date]:
             for idx in range(len(voyage) - 1):
+                
                 if  voyage[idx][0] not in time_stats_nodes[lp]:
                      time_stats_nodes[lp][voyage[idx][0]]={"times":[]}
                 if voyage[idx][1] in time_stats_nodes[lp][voyage[idx][0]]:
@@ -126,11 +127,9 @@ for lp in test_voyages.keys():
                     next_node_true = voyage[idx + 1][0] if idx + 1 < len(voyage) else "End_Node"
                     voyage_predictions.append({
                         'current_node': current_node,
-                        'current_node_name':camera_name_dict[current_node] if  current_node in camera_name_dict else None,
                         'predicted_next_node': next_node_predicted,
                         'model_used': model_used,
                         'ground_truth': next_node_true,
-                        'predicted_next_node_Name':camera_name_dict[next_node_predicted] if next_node_predicted in camera_name_dict else None
                     })
                 if next_node_true==next_node_predicted:
                      precision[lp]['precision']+=1
