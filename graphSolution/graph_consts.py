@@ -3,6 +3,6 @@ Consts={
 "min_time_between_samples":3 ,# in seconds
 "ratio_threshold":0.5,
 "camera_path":"cameras_siteName.csv",
-"detections_path_name":"GAL_Det-08-2023-ALL-AI.csv" ,
-"min_time_between_samples":1
+"detections_path_name":"AllDetections.csv" ,
+"max_time_between_samples":2,#in hours
 }

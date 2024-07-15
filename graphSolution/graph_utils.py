@@ -18,8 +18,8 @@ def discretize_date(date):
     elif date.hour>=4 and date.hour<=11:
         return "morning" 
     return "Mid-Day"
-def create_voyages_by_name(df,camera_to_site,external_to_new_ishit_id):
-    def diff_greater_than_n_hours(time1, time2,hours=1):
+def create_voyages_by_name(df,camera_to_site_not_deleted,camera_to_site_deleted):
+    def diff_greater_than_n_hours(time1, time2,hours):
         return (time2 - time1) > timedelta(hours=hours)
 
 
@@ -49,7 +49,7 @@ def create_voyages_by_name(df,camera_to_site,external_to_new_ishit_id):
                 timestamp = pd.Timestamp(last_date)
                 # Format to day/month
                 formatted_date = timestamp.strftime('%d/%m')
-                if diff_greater_than_n_hours(last_date, row['Date'],Consts['min_time_between_samples']):
+                if diff_greater_than_n_hours(last_date, row['Date'],Consts['max_time_between_samples']):
                     if len(current_voyage) >= Consts['min_len_voyage']:
                         if formatted_date in voyages:
                             voyages[formatted_date].append(current_voyage)
@@ -58,13 +58,15 @@ def create_voyages_by_name(df,camera_to_site,external_to_new_ishit_id):
                     current_voyage = []
             if last_date is None or diff_greater_than_n_sec(last_date, row['Date'], Consts['min_time_between_samples']):
                     date_time=discretize_date(row['Date'])
-                    if row['ishitId'] in camera_to_site: 
-                      current_voyage.append([camera_to_site[row['ishitId']],date_time,row['Date']])
+                    if row['IshitId'] in camera_to_site_not_deleted: 
+                        node=[camera_to_site_not_deleted[row['IshitId']],date_time,row['Date'],row['x'],row['y']]
                     else:
-                        #fix mismatch in ishitid 
-                       ishitId=external_to_new_ishit_id[row['externalCameraId']]
-                       current_voyage.append([camera_to_site[ishitId],date_time,row['Date']])
-                       
+                        node=[camera_to_site_deleted[row['IshitId']],date_time,row['Date'],row['x'],row['y']]
+                    if  current_voyage!= []:
+                        if  current_voyage[-1][0]==node[0]:
+                                continue
+                    current_voyage.append(node)
+
             last_date = row['Date']
             # Add the last voyage if it's not empty
         if current_voyage and len(current_voyage) >= Consts['min_len_voyage']:
@@ -125,7 +127,7 @@ def build_graph(edges_count):
             weight = count / total_traversals
             G.add_edge(start_node, end_node, weight=weight)
     return G
-def split_data(df,date='1/12/2023'):  
+def split_data(df,date='1/06/2024'):  
     # Convert 'Date' column to datetime
     df['Date'] = pd.to_datetime(df['Date'])
     # Define the cutoff date

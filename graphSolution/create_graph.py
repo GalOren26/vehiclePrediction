@@ -11,14 +11,17 @@ detections_path=Consts['detections_path_name']
 df = pd.read_csv(detections_path)
 df_camares= pd.read_csv(Consts['camera_path'])
 # Create a dictionary to map ExternalCameraId to siteName
-camera_to_site = dict(zip(df_camares['ishitId'], df_camares['siteName']))
-external_to_new_ishit_id= dict(zip(df_camares['ExternalCameraId'],df_camares['ishitId']))
-
-
+df_camares = df_camares.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+# DataFrame with isdeleted = 1
+df_deleted = df_camares[df_camares['IsDeleted'] == 1]
+# DataFrame with isdeleted = 0
+df_not_deleted = df_camares[df_camares['IsDeleted'] == 0]
+camera_to_site_not_deleted  = dict(zip(df_not_deleted['IshitId'], df_camares['siteName']))
+camera_to_site_deleted  = dict(zip(df_deleted['IshitId'], df_camares['siteName']))
 
 train,test=split_data(df)
-train_voyages=create_voyages_by_name(train,camera_to_site,external_to_new_ishit_id)
-test_voyages=create_voyages_by_name(test,camera_to_site,external_to_new_ishit_id)
+train_voyages=create_voyages_by_name(train,camera_to_site_not_deleted,camera_to_site_deleted)
+test_voyages=create_voyages_by_name(test,camera_to_site_not_deleted,camera_to_site_deleted)
 # # save and load data to bot crearte each time 
 # voyages_path = 'inffered_voyages_graph.pkl'
 # save_dict_to_pickle(voyages,voyages_path)
@@ -30,12 +33,12 @@ edges_count_first = {"all":{}}
 edges_count_second = {"all":{}}
 time_stats_nodes={}
 for lp in train_voyages.keys():
-    previous_node = None
     edges_count_first[lp]={}
     edges_count_second[lp]={}
     time_stats_nodes[lp]={}
     for date in train_voyages[lp]:
         for voyage in train_voyages[lp][date]:
+            previous_node = None
             for idx in range(len(voyage) - 1):
                 
                 if  voyage[idx][0] not in time_stats_nodes[lp]:
@@ -131,11 +134,11 @@ for lp in test_voyages.keys():
                         'model_used': model_used,
                         'ground_truth': next_node_true,
                     })
-                if next_node_true==next_node_predicted:
-                     precision[lp]['precision']+=1
-                     precision['all']['precision']+=1
-                precision[lp]['total_number_of_nodes']+=1
-                precision['all']['total_number_of_nodes']+=1
+                    if next_node_true==next_node_predicted:
+                        precision[lp]['precision']+=1
+                        precision['all']['precision']+=1
+                    precision[lp]['total_number_of_nodes']+=1
+                    precision['all']['total_number_of_nodes']+=1
                 predicted_results[lp][date].append(voyage_predictions)
         precision[lp]['precision']=precision[lp]['precision']/precision[lp]['total_number_of_nodes']
 precision['all']['precision']=precision['all']['precision']/precision['all']['total_number_of_nodes']
