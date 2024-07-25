@@ -8,9 +8,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pandas as pd
 import networkx as nx
-
+from tqdm import tqdm
 from graph_consts import Consts
-
+from joblib import Parallel, delayed
 
 def discretize_date(date):
     if date.hour<=3 or date.hour >=19:
@@ -18,65 +18,128 @@ def discretize_date(date):
     elif date.hour>=4 and date.hour<=11:
         return "morning" 
     return "Mid-Day"
-def create_voyages_by_name(df,camera_to_site_not_deleted,camera_to_site_deleted):
-    def diff_greater_than_n_hours(time1, time2,hours):
-        return (time2 - time1) > timedelta(hours=hours)
+def diff_greater_than_n_hours(time1, time2, hours):
+    return (time2 - time1) > timedelta(hours=hours)
 
+def diff_greater_than_n_sec(time1, time2, seconds=3):
+    return (time2 - time1) > timedelta(seconds=seconds)
 
-    def diff_greater_than_n_sec (time1, time2,seconds=3):
-        return (time2 - time1) > timedelta(seconds=seconds)
-
-        # Convert 'date' column to datetime objects
-    df.loc[:, 'Date'] = pd.to_datetime(df['Date'])
-
-    # Sort the DataFrame by 'LpId' and 'date'
-    df = df.sort_values(by=['LpId', 'Date']).copy()
-
+def create_voyages(df, camera_to_site):
     # Initialize a dictionary to hold the voyages
     voyages_dict = {}
+    undefiend_ishitId={}
     # Iterate over the DataFrame, grouped by 'LpId'
-    for lpid, group in df.groupby('LpId'):
-        voyages = {} # List to hold voyages for this 'LpId'
-        current_voyage = []  # List to hold the current voyage's data points
-        last_date = None  # Variable to keep track of the last date in the current voyage
-        
+    for lpid, group in  tqdm(df.groupby('LpId'), desc="Processing LpIds"):
+        voyages = {}
+        current_voyage = []
+        last_date = None
         for index, row in group.iterrows():
-            time_obj =  datetime.strptime(row['Hour'], '%I:%M:%S %p')
-            combined_datetime = row['Date'].replace(hour=time_obj.hour, minute=time_obj.minute, second=time_obj.second)
-            row['Date']=combined_datetime
-    
+            combined_datetime = row['CombinedDateTime']
             if last_date is not None:
                 timestamp = pd.Timestamp(last_date)
-                # Format to day/month
                 formatted_date = timestamp.strftime('%d/%m')
-                if diff_greater_than_n_hours(last_date, row['Date'],Consts['max_time_between_samples']):
+                if diff_greater_than_n_hours(last_date, combined_datetime, Consts['max_time_between_samples']):
                     if len(current_voyage) >= Consts['min_len_voyage']:
                         if formatted_date in voyages:
                             voyages[formatted_date].append(current_voyage)
                         else:
-                            voyages[formatted_date]=[current_voyage]
+                            voyages[formatted_date] = [current_voyage]
                     current_voyage = []
-            if last_date is None or diff_greater_than_n_sec(last_date, row['Date'], Consts['min_time_between_samples']):
-                    date_time=discretize_date(row['Date'])
-                    if row['IshitId'] in camera_to_site_not_deleted: 
-                        node=[camera_to_site_not_deleted[row['IshitId']],date_time,row['Date'],row['x'],row['y']]
-                    else:
-                        node=[camera_to_site_deleted[row['IshitId']],date_time,row['Date'],row['x'],row['y']]
-                    if  current_voyage!= []:
-                        if  current_voyage[-1][0]==node[0]:
-                                continue
-                    current_voyage.append(node)
-
-            last_date = row['Date']
-            # Add the last voyage if it's not empty
-        if current_voyage and len(current_voyage) >= Consts['min_len_voyage']:
-                if formatted_date in voyages:
-                    voyages[formatted_date].append(current_voyage)
+            if last_date is None or diff_greater_than_n_sec(last_date, combined_datetime, Consts['min_time_between_samples']):
+                date_time = discretize_date(combined_datetime)
+                if row['IshitId'] in camera_to_site:
+                    node = [
+                        camera_to_site[row['IshitId']],
+                        date_time,
+                        combined_datetime,
+                        row['x'],
+                        row['y']
+                    ]
                 else:
-                    voyages[formatted_date]=[current_voyage]
+                    undefiend_ishitId[row['IshitId']] = 1
+                    continue
+                if current_voyage!= []:
+                    if  current_voyage[-1][0] == node[0]:
+                        continue
+                current_voyage.append(node)
+
+            last_date = combined_datetime
+        
+        if current_voyage and len(current_voyage) >= Consts['min_len_voyage']:
+            formatted_date = pd.Timestamp(last_date).strftime('%d/%m')
+            if formatted_date in voyages:
+                    voyages[formatted_date].append(current_voyage)
+            else:
+                    voyages[formatted_date] = [current_voyage]
+        
         if voyages:
             voyages_dict[lpid] = voyages
-    return voyages_dict
+    
+    return voyages_dict,undefiend_ishitId
+def parallel_create_voyages(df, camera_to_site, Consts):
+    voyages_dict = {}
+    undefined_ishitId = {}
+    
+    results = Parallel(n_jobs=-1)(
+        delayed(process_group)(lpid, group, camera_to_site, Consts)
+        for lpid, group in tqdm(df.groupby('LpId'), desc="Processing LpIds")
+    )
+
+    for lpid, voyages, undefined_ids in results:
+        if voyages:
+            voyages_dict[lpid] = voyages
+        undefined_ishitId.update(undefined_ids)
+    
+    return voyages_dict, undefined_ishitId
+
+
+
+def process_group(lpid, group, camera_to_site, Consts):
+    voyages = {}
+    current_voyage = []
+    last_date = None
+    undefined_ishitId = {}
+
+    for index, row in group.iterrows():
+        combined_datetime = row['CombinedDateTime']
+        if last_date is not None:
+            timestamp = pd.Timestamp(last_date)
+            formatted_date = timestamp.strftime('%d/%m')
+            if diff_greater_than_n_hours(last_date, combined_datetime, Consts['max_time_between_samples']):
+                if len(current_voyage) >= Consts['min_len_voyage']:
+                    if formatted_date in voyages:
+                        voyages[formatted_date].append(current_voyage)
+                    else:
+                        voyages[formatted_date] = [current_voyage]
+                current_voyage = []
+        if last_date is None or diff_greater_than_n_sec(last_date, combined_datetime, Consts['min_time_between_samples']):
+            date_time = discretize_date(combined_datetime)
+            if row['IshitId'] in camera_to_site:
+                node = [
+                    camera_to_site[row['IshitId']],
+                    date_time,
+                    combined_datetime,
+                    row['x'],
+                    row['y']
+                ]
+            else:
+                undefined_ishitId[row['IshitId']] = 1
+                continue
+            if current_voyage != []:
+                if current_voyage[-1][0] == node[0]:
+                    continue
+            current_voyage.append(node)
+
+        last_date = combined_datetime
+    
+    if current_voyage and len(current_voyage) >= Consts['min_len_voyage']:
+        formatted_date = pd.Timestamp(last_date).strftime('%d/%m')
+        if formatted_date in voyages:
+            voyages[formatted_date].append(current_voyage)
+        else:
+            voyages[formatted_date] = [current_voyage]
+    
+    return lpid, voyages, undefined_ishitId
 
 
 def save_dict_to_pickle(data_dict, filename):
@@ -127,9 +190,27 @@ def build_graph(edges_count):
             weight = count / total_traversals
             G.add_edge(start_node, end_node, weight=weight)
     return G
-def split_data(df,date='1/06/2024'):  
+
+
+
+
+def preprocess_dataframe(df):
+    
     # Convert 'Date' column to datetime
-    df['Date'] = pd.to_datetime(df['Date'])
+    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
+
+    # Convert 'Hour' column to datetime, specifying the format, then to timedelta
+    df['Hour'] = pd.to_datetime(df['Hour'], format='%I:%M:%S %p').dt.strftime('%H:%M:%S')
+    df['Hour'] = pd.to_timedelta(df['Hour'])
+
+    # Combine 'Date' and 'Hour'
+    df['CombinedDateTime'] = df['Date'] + df['Hour']
+    df = df.sort_values(by=['LpId', 'CombinedDateTime']).copy()
+    
+    return df
+def split_data(df,date):  
+    # Convert 'Date' column to datetime
+    # df['Date'] = pd.to_datetime(df['Date'])
     # Define the cutoff date
     cutoff_date = pd.to_datetime(date, format='%d/%m/%Y')
     # Split the DataFrame into before and after the cutoff date

@@ -1,27 +1,23 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
-from graph_utils import build_graph, create_voyages_by_name, load_dict_from_pickle, save_dict_to_pickle, split_data, update_edge_counts
+from graph_utils import build_graph, create_voyages, load_dict_from_pickle, preprocess_dataframe, save_dict_to_pickle, split_data, update_edge_counts
 from graph_consts import Consts
 # Set the working directory to the script's directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # voyages = load_dict_from_pickle(voyages_path)
-# Load data
+# # Load data
 detections_path=Consts['detections_path_name']
 df = pd.read_csv(detections_path)
-df_camares= pd.read_csv(Consts['camera_path'])
+df['LpId']= df['LpId'].str.lower()
+df_cameras= pd.read_csv(Consts['camera_path'])
 # Create a dictionary to map ExternalCameraId to siteName
-df_camares = df_camares.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-# DataFrame with isdeleted = 1
-df_deleted = df_camares[df_camares['IsDeleted'] == 1]
-# DataFrame with isdeleted = 0
-df_not_deleted = df_camares[df_camares['IsDeleted'] == 0]
-camera_to_site_not_deleted  = dict(zip(df_not_deleted['IshitId'], df_camares['siteName']))
-camera_to_site_deleted  = dict(zip(df_deleted['IshitId'], df_camares['siteName']))
-
-train,test=split_data(df)
-train_voyages=create_voyages_by_name(train,camera_to_site_not_deleted,camera_to_site_deleted)
-test_voyages=create_voyages_by_name(test,camera_to_site_not_deleted,camera_to_site_deleted)
+df_cameras = df_cameras.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+camera_to_site = df_cameras.set_index('IshitId')['siteName'].to_dict()
+df=preprocess_dataframe(df)
+train,test=split_data(df,date=Consts['split_date'])
+train_voyages,undefiend_ishitId_train=create_voyages(train,camera_to_site)
+test_voyages,undefiend_ishitId_test=create_voyages(test,camera_to_site)
 # # save and load data to bot crearte each time 
 # voyages_path = 'inffered_voyages_graph.pkl'
 # save_dict_to_pickle(voyages,voyages_path)
@@ -40,7 +36,6 @@ for lp in train_voyages.keys():
         for voyage in train_voyages[lp][date]:
             previous_node = None
             for idx in range(len(voyage) - 1):
-                
                 if  voyage[idx][0] not in time_stats_nodes[lp]:
                      time_stats_nodes[lp][voyage[idx][0]]={"times":[]}
                 if voyage[idx][1] in time_stats_nodes[lp][voyage[idx][0]]:
@@ -68,16 +63,22 @@ for lp in train_voyages.keys():
             update_edge_counts(edges_count_second[lp], last_node_second, virtual_end_node)
             update_edge_counts(edges_count_second['all'], last_node_second, virtual_end_node)
     # Construct graphs
-    graphs_first_order[lp] = build_graph(edges_count_first[lp])
-    graphs_second_order[lp] = build_graph(edges_count_second[lp])
-    graphs={"graphs_first_order": graphs_first_order,"graphs_second_order": graphs_second_order,'edges_count_first': edges_count_first,"edges_count_second": edges_count_second}
+    
+    
+    # graphs_first_order[lp] = build_graph(edges_count_first[lp])
+    # graphs_second_order[lp] = build_graph(edges_count_second[lp])
+    # graphs={"graphs_first_order": graphs_first_order,"graphs_second_order": graphs_second_order,'edges_count_first': edges_count_first,"edges_count_second": edges_count_second}
+stats={ "edges_count_first":edges_count_first,"edges_count_second":edges_count_second,"time_stats_nodes":time_stats_nodes,
+           "train_voyages":train_voyages,"test_voyages":test_voyages}
+
 voyages_path = 'graph_stats.pkl'
-save_dict_to_pickle(graphs,voyages_path)
+save_dict_to_pickle(stats,voyages_path)
 
 #######infernce part################################ 
-
+voyages_path = 'graph_stats.pkl'
 graphs=load_dict_from_pickle(voyages_path)
 edges_count_first,edges_count_second=graphs['edges_count_first'],graphs['edges_count_second']
+train_voyages,test_voyages=graphs['train_voyages'],graphs['test_voyages']
 predicted_results = {}
 # min_count = Consts["min_count"]
 ratio_threshold = Consts["ratio_threshold"]
